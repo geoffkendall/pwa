@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PWA Collection</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0f0f0f;
+      color: #c8a96e;
+      font-family: Georgia, serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      font-weight: 400;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #e8b84b;
+      margin-bottom: 8px;
+    }
+
+    p {
+      font-size: 0.75rem;
+      color: #4a4030;
+      letter-spacing: 0.08em;
+      margin-bottom: 48px;
+    }
+
+    .grid {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      width: 100%;
+      max-width: 400px;
+    }
+
+    a {
+      display: block;
+      padding: 20px 24px;
+      background: #1a1208;
+      border: 1px solid #2a2010;
+      border-radius: 10px;
+      text-decoration: none;
+      color: #c8a96e;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    a:hover {
+      border-color: #e85d3a;
+      background: #1f1510;
+    }
+
+    .app-title {
+      font-size: 1rem;
+      letter-spacing: 0.06em;
+      margin-bottom: 4px;
+    }
+
+    .app-desc {
+      font-size: 0.72rem;
+      color: #5a4a30;
+      letter-spacing: 0.04em;
+    }
+  </style>
+</head>
+<body>
+  <h1>PWA Collection</h1>
+  <p>Select an app</p>
+
+  <div class="grid">
+    <a href="bass-pwa-audio/">
+      <div class="app-title">Minor Pentatonic — Bass</div>
+      <div class="app-desc">Interactive fretboard with audio · Standard tuning</div>
+    </a>
+  </div>
+</body>
+</html>

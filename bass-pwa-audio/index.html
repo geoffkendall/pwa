@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+  <meta name="apple-mobile-web-app-title" content="Bass Scale" />
+  <meta name="theme-color" content="#0f0f0f" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icon.png" />
+  <title>Minor Pentatonic — Bass</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #0f0f0f;
+      overflow-x: hidden;
+    }
+
+    button {
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .dot {
+      cursor: pointer;
+    }
+
+    .dot:active circle {
+      filter: brightness(1.4);
+    }
+  </style>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useRef, useCallback } = React
+
+    const OPEN_MIDI = [43, 38, 33, 28] // G2, D2, A1, E1
+    const MINOR_PENT_INTERVALS = [0, 3, 5, 7, 10]
+    const DEGREE_LABELS = { 0: "1", 3: "b3", 5: "4", 7: "5", 10: "b7" }
+    const DEGREE_COLORS = { 0: "#e85d3a", 3: "#5b9bd5", 5: "#6dbf7e", 7: "#e8b84b", 10: "#b07dd4" }
+    const ROOT_OPTIONS = ["A", "B", "C", "D", "E", "F", "G"]
+    const ROOT_MIDI = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }
+    const STRING_LABELS = ["G", "D", "A", "E"]
+
+    // Convert MIDI note number to frequency
+    function midiToFreq(midi) {
+      return 440 * Math.pow(2, (midi - 69) / 12)
+    }
+
+    // Karplus-Strong plucked string synthesis
+    function pluckNote(ctx, freq, velocity = 0.8) {
+      const sampleRate = ctx.sampleRate
+      const bufferSize = Math.round(sampleRate / freq)
+      const duration = 1 // seconds
+      const totalSamples = Math.round(sampleRate * duration)
+
+      // Fill noise buffer
+      const noiseBuffer = new Float32Array(bufferSize)
+      for (let i = 0; i < bufferSize; i++) {
+        noiseBuffer[i] = (Math.random() * 2 - 1) * velocity
+      }
+
+      // Karplus-Strong: output buffer via delay line + low-pass filter
+      const outputBuffer = ctx.createBuffer(1, totalSamples, sampleRate)
+      const output = outputBuffer.getChannelData(0)
+      const delayLine = new Float32Array(bufferSize)
+      for (let i = 0; i < bufferSize; i++) delayLine[i] = noiseBuffer[i]
+
+      // decay increases with frequency (higher notes seem to last longer)
+      const decay = Math.min(0.999, 0.900 + (freq / 5000) * 2)
+
+      let idx = 0
+      for (let i = 0; i < totalSamples; i++) {
+        const next = (idx + 1) % bufferSize
+        // Low-pass filter: average current + next sample (gives warm pluck)
+        output[i] = delayLine[idx]
+        delayLine[idx] = decay * 0.5 * (delayLine[idx] + delayLine[next])
+        idx = (idx + 1) % bufferSize
+      }
+
+      // Apply a short fade-out at the end to avoid clicks
+      const fadeLen = Math.round(sampleRate * 0.05)
+      for (let i = 0; i < fadeLen; i++) {
+        output[totalSamples - 1 - i] *= i / fadeLen
+      }
+
+      const source = ctx.createBufferSource()
+      source.buffer = outputBuffer
+
+      // Subtle compression to keep levels consistent across registers
+      const compressor = ctx.createDynamicsCompressor()
+      compressor.threshold.value = -18
+      compressor.knee.value = 6
+      compressor.ratio.value = 4
+      compressor.attack.value = 0.003
+      compressor.release.value = 0.25
+
+      // Low shelf boost for warmth
+      const eq = ctx.createBiquadFilter()
+      eq.type = "lowshelf"
+      eq.frequency.value = 200
+      eq.gain.value = 6
+
+      source.connect(eq)
+      eq.connect(compressor)
+      compressor.connect(ctx.destination)
+      source.start()
+    }
+
+    function BassFretboard() {
+      const [root, setRoot] = useState("A")
+      const [activeNote, setActiveNote] = useState(null)
+      const audioCtxRef = useRef(null)
+      const rootMidi = ROOT_MIDI[root]
+
+      function getAudioCtx() {
+        if (!audioCtxRef.current) {
+          audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)()
+        }
+        if (audioCtxRef.current.state === 'suspended') {
+          audioCtxRef.current.resume()
+        }
+        return audioCtxRef.current
+      }
+
+      function handleNotePlay(midiNote, key) {
+        const ctx = getAudioCtx()
+        const freq = midiToFreq(midiNote)
+        pluckNote(ctx, freq, 0.85)
+        setActiveNote(key)
+        setTimeout(() => setActiveNote(null), 300)
+      }
+
+      const vw = Math.min(window.innerWidth, 560)
+      const NUM_FRETS = 12
+      const FRET_W = Math.max(36, Math.floor((vw - 80) / NUM_FRETS))
+      const STRING_H = 48
+      const NUT_W = 12
+      const PAD_L = 36
+      const PAD_R = 16
+      const PAD_V = 28
+      const svgW = PAD_L + NUT_W + NUM_FRETS * FRET_W + PAD_R
+      const svgH = PAD_V + 3 * STRING_H + PAD_V + 24
+
+      const allNotes = []
+      for (let s = 0; s < 4; s++)
+        for (let f = 0; f <= NUM_FRETS; f++) {
+          const midiNote = OPEN_MIDI[s] + f
+          const interval = (midiNote % 12 - rootMidi + 12) % 12
+          if (MINOR_PENT_INTERVALS.includes(interval)) {
+            allNotes.push({ s, f, interval, midiNote })
+          }
+        }
+
+      return (
+        <div style={{ minHeight: "100vh", background: "#0f0f0f", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "Georgia,serif", padding: "32px 12px", WebkitUserSelect: "none" }}>
+          <h1 style={{ color: "#e8b84b", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 400, marginBottom: 4, fontSize: "1.3rem", textAlign: "center" }}>Minor Pentatonic</h1>
+          <p style={{ color: "#5a5040", fontSize: "0.78rem", marginBottom: 4, letterSpacing: "0.06em" }}>Bass · Standard Tuning</p>
+          <p style={{ color: "#4a4838", fontSize: "0.72rem", marginBottom: 20, letterSpacing: "0.08em" }}>tap any dot to hear the note</p>
+
+          <div style={{ display: "flex", gap: 8, marginBottom: 28, flexWrap: "wrap", justifyContent: "center" }}>
+            {ROOT_OPTIONS.map(n => (
+              <button key={n} onClick={() => setRoot(n)} style={{
+                width: 40, height: 40, borderRadius: "50%",
+                border: root === n ? "2px solid #e85d3a" : "2px solid #2a2a2a",
+                background: root === n ? "#e85d3a22" : "transparent",
+                color: root === n ? "#e85d3a" : "#5a5040",
+                cursor: "pointer", fontFamily: "Georgia,serif", fontSize: "1rem",
+                transition: "all 0.15s"
+              }}>{n}</button>
+            ))}
+          </div>
+
+          <div style={{ overflowX: "auto", background: "#1a1208", borderRadius: 10, padding: "16px 8px 8px", boxShadow: "0 8px 40px #000a", width: "100%" }}>
+            <svg width={svgW} height={svgH} style={{ display: "block", margin: "0 auto" }}>
+              {STRING_LABELS.map((label, s) => (
+                <text key={s} x={PAD_L - 8} y={PAD_V + s * STRING_H + 5} textAnchor="end"
+                  fill="#5a4a30" fontSize={13} fontFamily="Georgia,serif">{label}</text>
+              ))}
+              {[0, 1, 2, 3].map(s => (
+                <line key={s} x1={PAD_L} y1={PAD_V + s * STRING_H} x2={svgW - PAD_R} y2={PAD_V + s * STRING_H}
+                  stroke="#6b5a3a" strokeWidth={1.2 + (3 - s) * 0.8} />
+              ))}
+              {Array.from({ length: NUM_FRETS + 1 }, (_, i) => (
+                <line key={i} x1={PAD_L + NUT_W + i * FRET_W} y1={PAD_V} x2={PAD_L + NUT_W + i * FRET_W} y2={PAD_V + 3 * STRING_H}
+                  stroke={i === 0 ? "#c8a96e" : "#3a3020"} strokeWidth={i === 0 ? 4 : 1} />
+              ))}
+              {[3, 5, 7, 9, 12].map(f => (
+                f === 12 ? (
+                  <g key={f}>
+                    <circle cx={PAD_L + NUT_W + (f - 0.5) * FRET_W - 8} cy={svgH - 12} r={4} fill="#3a3020" />
+                    <circle cx={PAD_L + NUT_W + (f - 0.5) * FRET_W + 8} cy={svgH - 12} r={4} fill="#3a3020" />
+                  </g>
+                ) : (
+                  <circle key={f} cx={PAD_L + NUT_W + (f - 0.5) * FRET_W} cy={svgH - 12} r={4} fill="#3a3020" />
+                )
+              ))}
+              {[1, 3, 5, 7, 9, 12].map(f => (
+                <text key={f} x={PAD_L + NUT_W + (f - 0.5) * FRET_W} y={PAD_V + 3 * STRING_H + 18}
+                  textAnchor="middle" fill="#4a4030" fontSize={11} fontFamily="Georgia,serif">{f}</text>
+              ))}
+              {allNotes.map(({ s, f, interval, midiNote }) => {
+                const cx = f === 0 ? PAD_L + NUT_W / 2 : PAD_L + NUT_W + (f - 0.5) * FRET_W
+                const cy = PAD_V + s * STRING_H
+                const color = DEGREE_COLORS[interval]
+                const isRoot = interval === 0
+                const key = `${s}-${f}`
+                const isActive = activeNote === key
+                return (
+                  <g key={key} className="dot"
+                    onClick={() => handleNotePlay(midiNote, key)}
+                    style={{ cursor: "pointer" }}>
+                    {/* Ripple ring on tap */}
+                    {isActive && (
+                      <circle cx={cx} cy={cy} r={isRoot ? 22 : 20}
+                        fill="none" stroke={color} strokeWidth={2} opacity={0.5} />
+                    )}
+                    <circle cx={cx} cy={cy} r={isRoot ? 15 : 13}
+                      fill={color}
+                      opacity={isActive ? 1 : 0.88}
+                      stroke={isRoot ? "#ffffff55" : "none"}
+                      strokeWidth={2}
+                      style={{ transition: "opacity 0.1s", filter: isActive ? `drop-shadow(0 0 8px ${color})` : "none" }}
+                    />
+                    <text x={cx} y={cy + 4} textAnchor="middle" fill="#fff"
+                      fontSize={isRoot ? 12 : 11} fontWeight={isRoot ? "bold" : "normal"}
+                      fontFamily="Georgia,serif" style={{ pointerEvents: "none" }}>
+                      {DEGREE_LABELS[interval]}
+                    </text>
+                  </g>
+                )
+              })}
+            </svg>
+          </div>
+
+          <div style={{ display: "flex", gap: 14, marginTop: 20, flexWrap: "wrap", justifyContent: "center" }}>
+            {Object.entries(DEGREE_LABELS).map(([interval, label]) => (
+              <div key={interval} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{
+                  width: 26, height: 26, borderRadius: "50%",
+                  background: DEGREE_COLORS[interval],
+                  border: interval === "0" ? "2px solid #ffffff44" : "none",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 11, color: "#fff", fontFamily: "Georgia,serif",
+                  fontWeight: interval === "0" ? "bold" : "normal"
+                }}>{label}</div>
+                <span style={{ fontSize: "0.75rem", color: "#7a7060" }}>
+                  {{ "0": "Root", "3": "Minor 3rd", "5": "4th", "7": "5th", "10": "Minor 7th" }[interval]}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p style={{ marginTop: 16, fontSize: "0.65rem", color: "#2a2a20", letterSpacing: "0.06em", textAlign: "center" }}>
+            Tap a root to transpose · tap a dot to play
+          </p>
+        </div>
+      )
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<BassFretboard />);
+  </script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'))
+    }
+  </script>
+</body>
+
+</html>
